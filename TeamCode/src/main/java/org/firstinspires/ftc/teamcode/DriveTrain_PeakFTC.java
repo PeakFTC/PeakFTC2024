@@ -30,14 +30,18 @@ public class DriveTrain_PeakFTC extends OpMode {
     private Servo claw;// EX port 4
     private Servo hand; // Ex port 5
     private Servo dropper;
+    private Servo SPC; // Specimen holder mover
+    private Servo SPH; // specimen holder/dropper
     private ElapsedTime runtime = new ElapsedTime();
     static final double     COUNTS_PER_MOTOR_REV    = 752 ;    // eg: TETRIX Motor Encoder
     static final double     DRIVE_GEAR_REDUCTION    = 1.0 ;     // No External Gearing.
     static final double     WHEEL_DIAMETER_INCHES   = 1.5 ;     // For figuring circumference
     static final double     COUNTS_PER_INCH         = (COUNTS_PER_MOTOR_REV * DRIVE_GEAR_REDUCTION) /
             (WHEEL_DIAMETER_INCHES * 3.1415);
-    Thread dropTheSample;
-    int level =0;
+    private Thread dropTheSample;
+    private Thread dipositTheSample;
+    private int level =0;
+    private boolean isTrigger=false;
 
     // Initialize hardware
     @Override
@@ -52,6 +56,8 @@ public class DriveTrain_PeakFTC extends OpMode {
         hand=hardwareMap.get(Servo.class,"hand");
         claw=hardwareMap.get(Servo.class,"claw");
         dropper = hardwareMap.get(Servo.class,"dropper");
+        SPC = hardwareMap.get(Servo.class,"spc");
+        SPH = hardwareMap.get(Servo.class,"sph");
 
         // Set motor directions (adjust based on your robot)
         frontLeftMotor.setDirection(DcMotor.Direction.FORWARD);
@@ -61,6 +67,7 @@ public class DriveTrain_PeakFTC extends OpMode {
         dropper.setDirection(Servo.Direction.REVERSE);
         hanging.setDirection(DcMotor.Direction.FORWARD);// change direction if does not mach with controler controls
         arm.setDirection(DcMotor.Direction.FORWARD);
+        //SPH.setDirection(Servo.Direction.REVERSE);
 
         // reset all the encoder before run
         hanging.setMode(DcMotor.RunMode.STOP_AND_RESET_ENCODER);
@@ -81,19 +88,38 @@ public class DriveTrain_PeakFTC extends OpMode {
         hand.setDirection(Servo.Direction.REVERSE);
         claw.setDirection(Servo.Direction.REVERSE);
 
-        dropTheSample = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                if(level == 1){
-					dropTheSampleAtLevelOne();
-                }else if(level ==2){					
-					dropTheSampleAtLevelTwo();
+        dropTheSample = new Thread(() -> {
+            while(true) {
+                if (level == 1) {
+                    dropTheSampleAtLevelOne();
+                    level =0;
+                } else if (level == 2) {
+                    dropTheSampleAtLevelTwo();
+                    level =0;
                 }
                 try {
                     sleep(100);
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
+               // telemetry.addData("Thread call", " level %d",level);
+               // telemetry.update();
+            }
+        });
+
+        dipositTheSample = new Thread(() -> {
+            while(true) {
+               if(isTrigger){
+                   dropTheSampleintoLinearSideBucket();
+                   isTrigger=false;
+               }
+                try {
+                    sleep(100);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+                // telemetry.addData("Thread call", " level %d",level);
+                // telemetry.update();
             }
         });
     }
@@ -140,6 +166,7 @@ public class DriveTrain_PeakFTC extends OpMode {
         resetEncoder(hanging);
         armATRest();
         dropTheSample.start();
+        dipositTheSample.start();
     }
 	
     // Run the robot
@@ -150,54 +177,85 @@ public class DriveTrain_PeakFTC extends OpMode {
         double drive = gamepad1.right_stick_y;
         double strafe = -gamepad1.left_stick_x;
         double rotate = gamepad1.right_stick_x;
+        double frontLeftPower = 0;
+        double frontRightPower = 0;
+        double rearLeftPower = 0;
+        double rearRightPower = 0;
 
         // Calculate motor powers based on Mecanum drive equations
-        double frontLeftPower = drive - strafe - rotate;
-        double frontRightPower = drive + strafe + rotate;
-        double rearLeftPower = drive + strafe -rotate;
-        double rearRightPower = drive - strafe + rotate;
+        /* frontLeftPower = drive - strafe - rotate;
+         frontRightPower = drive + strafe + rotate;
+         rearLeftPower = drive + strafe -rotate;
+         rearRightPower = drive - strafe + rotate;*/
 
+        frontLeftPower = drive - strafe - rotate;
+        frontRightPower = drive + strafe + rotate;
+        rearLeftPower = drive + strafe - rotate;
+        rearRightPower = drive - strafe + rotate;
+
+        if(gamepad1.right_bumper){
+            SPC.setPosition(1);// close
+        }
+        if(gamepad1.left_bumper){
+            SPC.setPosition(0); //open
+        }
+        if(gamepad1.right_trigger>0){
+            SPH.setPosition(1);
+        }
+        if(gamepad1.left_trigger>0){
+            SPH.setPosition(0); //open
+        }
         if(gamepad1.dpad_up){
 			level=2;
         }
         if(gamepad1.dpad_down){
 			level=1;
         }
+        if(gamepad1.dpad_left) {
+            isTrigger=true;
+        }
         if(gamepad1.x) {
             pickTheSample();
         }
-       if(gamepad1.dpad_left) {
-            dropTheSampleintoLinearSideBucket();
-            resetEncoder(arm);
-        }
-	   if(gamepad1.y){
+	    if(gamepad1.y){
 		   hand.setPosition(0);
 		   claw.setPosition(0);
-	   }
-	   if(gamepad2.x) {
+	    }
+	    if(gamepad2.x) {
 		   claw.setPosition(0);
-	   }
-	   if(gamepad2.y) {
+	    }
+	    if(gamepad2.y) {
 			claw.setPosition(0.25);
-	   }
-	   if(gamepad2.x) {
-		   claw.setPosition(0);
-	   }
-	   if(gamepad2.y) {
-			claw.setPosition(0.25);
-	   }
-	   if(gamepad2.b) {
+	    }
+	    if(gamepad2.b) {
 		   hand.setPosition(0);
-	   }
-	   if(gamepad2.a) {
+	    }
+	    if(gamepad2.a) {
 			hand.setPosition(1);
-	   }
-        // Set motor powers (scale to keep values between -1 and 1)
-        frontLeftMotor.setPower(scaleInput(frontLeftPower));
-        frontRightMotor.setPower(scaleInput(frontRightPower));
-        rearLeftMotor.setPower(scaleInput(rearLeftPower));
-        rearRightMotor.setPower(scaleInput(rearRightPower));
+	    }
+        // Set motor powers (scale to keep values between -0.9 and 0.9)
+        if(strafe > 0){ // left  move
+            frontLeftMotor.setPower(scaleInput(frontLeftPower));
+            frontRightMotor.setPower(scaleInput(frontRightPower));
+            rearLeftMotor.setPower((scaleInput(rearLeftPower)-0.09));
+            rearRightMotor.setPower((scaleInput(rearRightPower)+0.1));
+        }else if(strafe  < 0) { // right move
+            frontLeftMotor.setPower(scaleInput(frontLeftPower));
+            frontRightMotor.setPower(scaleInput(frontRightPower));
+            rearLeftMotor.setPower((scaleInput(rearLeftPower)+0.1));
+            rearRightMotor.setPower((scaleInput(rearRightPower)-0.1));
 
+        }else if(strafe==0 && (drive!=0 ||rotate!=0)){ // forward/backward/rotate
+            frontLeftMotor.setPower(scaleInput(frontLeftPower));
+            frontRightMotor.setPower(scaleInput(frontRightPower));
+            rearLeftMotor.setPower(scaleInput(rearLeftPower));
+            rearRightMotor.setPower(scaleInput(rearRightPower));
+        }else { // no move
+            frontLeftMotor.setPower(0);
+            frontRightMotor.setPower(0);
+            rearLeftMotor.setPower(0);
+            rearRightMotor.setPower(0);
+        }
         telemetry.addData("Linear slid Currently at", " at %7d",
                 hanging.getCurrentPosition());
 
@@ -213,7 +271,6 @@ public class DriveTrain_PeakFTC extends OpMode {
 
         telemetry.addData("ARM Currently at", " at %7d",
                 arm.getCurrentPosition());
-
 
         telemetry.update();
     }
@@ -270,11 +327,10 @@ public class DriveTrain_PeakFTC extends OpMode {
             hanging.setPower(pwr);
         }
         hanging.setPower(0);
-        level =0;
     }
 
     private double scaleInput(double input) {
-        return Math.max(-1, Math.min(1, input));
+        return Math.max(-0.9, Math.min(0.9, input));
     }
     private void dropTheSampleintoLinearSideBucket() {
         // how much Arm should swing to pick and drop the samples
@@ -399,7 +455,6 @@ public class DriveTrain_PeakFTC extends OpMode {
             hanging.setPower(pwr);
         }
         hanging.setPower(0);
-        level =0;
     }
     public void moveRight(){
         // Get gamepad inputs for driving
